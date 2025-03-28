@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgriTech Dashboard</title>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .loading-spinner {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .weather-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-green-50 min-h-screen" x-data="app()">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-bold text-gray-800 mb-4">AgriTech Dashboard</h1>
+            <div class="flex justify-center space-x-4">
+                <input 
+                    type="text" 
+                    x-model="location" 
+                    placeholder="Enter location..."
+                    class="px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-green-400"
+                    @keydown.enter="fetchAllData()"
+                >
+                <button 
+                    @click="fetchAllData()"
+                    class="bg-green-500 text-white px-6 py-2 rounded-lg hover:bg-green-600 transition duration-200"
+                >
+                    <span x-show="!loading">Search</span>
+                    <i x-show="loading" class="bi bi-arrow-repeat loading-spinner"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Weather Card -->
+            <div class="bg-white rounded-xl shadow-lg p-6 weather-card">
+                <h2 class="text-2xl font-semibold mb-4 flex items-center">
+                    <i class="bi bi-cloud-sun mr-2"></i> Weather Information
+                </h2>
+                <template x-if="weather.temp">
+                    <div>
+                        <p class="text-4xl font-bold mb-4" x-text="`${weather.temp}°C`"></p>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <p class="text-gray-600">Humidity</p>
+                                <p class="font-semibold" x-text="`${weather.humidity}%`"></p>
+                            </div>
+                            <div>
+                                <p class="text-gray-600">Wind Speed</p>
+                                <p class="font-semibold" x-text="`${weather.windSpeed} km/h`"></p>
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <p class="text-gray-600">Rainfall Prediction</p>
+                            <p class="font-semibold" x-text="weather.rainfall"></p>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Commodity Prices -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h2 class="text-2xl font-semibold mb-4 flex items-center">
+                    <i class="bi bi-graph-up mr-2"></i> Market Prices
+                </h2>
+                <div class="space-y-4">
+                    <template x-for="(price, crop) in prices" :key="crop">
+                        <div class="flex justify-between items-center">
+                            <span x-text="crop"></span>
+                            <span class="font-semibold" x-text="`₹${price}/kg`"></span>
+                        </div>
+                    </template>
+                </div>
+                <canvas id="priceChart" class="mt-4"></canvas>
+            </div>
+
+            <!-- Demand Analysis -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h2 class="text-2xl font-semibold mb-4 flex items-center">
+                    <i class="bi bi-bar-chart mr-2"></i> Demand Analysis
+                </h2>
+                <template x-for="(level, crop) in demand" :key="crop">
+                    <div class="mb-4">
+                        <p class="text-gray-600" x-text="crop"></p>
+                        <div class="w-full bg-gray-200 rounded-full h-2.5">
+                            <div 
+                                class="bg-green-600 h-2.5 rounded-full"
+                                :style="`width: ${level === 'High' ? '100%' : level === 'Medium' ? '66%' : '33%'}`"
+                            ></div>
+                        </div>
+                        <p class="text-sm mt-1" x-text="level"></p>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Procurement Centers -->
+            <div class="bg-white rounded-xl shadow-lg p-6 md:col-span-2 lg:col-span-3">
+                <h2 class="text-2xl font-semibold mb-4 flex items-center">
+                    <i class="bi bi-geo-alt mr-2"></i> Nearby Procurement Centers
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <template x-for="center in centers" :key="center.id">
+                        <div class="border p-4 rounded-lg">
+                            <h3 class="font-semibold" x-text="center.name"></h3>
+                            <p class="text-gray-600" x-text="`Distance: ${center.distance} km`"></p>
+                            <p class="text-gray-600" x-text="`Contact: ${center.contact}`"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function app() {
+            return {
+                location: '',
+                loading: false,
+                weather: {
+                    temp: null,
+                    humidity: null,
+                    windSpeed: null,
+                    rainfall: null
+                },
+                prices: {},
+                demand: {},
+                centers: [],
+                
+                async fetchAllData() {
+                    this.loading = true;
+                    try {
+                        await Promise.all([
+                            this.fetchWeather(),
+                            this.fetchPrices(),
+                            this.fetchDemand(),
+                            this.fetchCenters()
+                        ]);
+                        this.initializeCharts();
+                    } catch (error) {
+                        console.error('Error fetching data:', error);
+                        alert('Failed to fetch data. Please try again.');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async fetchWeather() {
+                    // Simulated API call
+                    this.weather = {
+                        temp: 28,
+                        humidity: 65,
+                        windSpeed: 12,
+                        rainfall: "30% chance of rain"
+                    };
+                },
+
+                async fetchPrices() {
+                    // Simulated API call
+                    this.prices = {
+                        "Rice": 45,
+                        "Wheat": 30,
+                        "Cotton": 75,
+                        "Sugarcane": 25
+                    };
+                },
+
+                async fetchDemand() {
+                    // Simulated API call
+                    this.demand = {
+                        "Rice": "High",
+                        "Wheat": "Medium",
+                        "Cotton": "High",
+                        "Sugarcane": "Low"
+                    };
+                },
+
+                async fetchCenters() {
+                    // Simulated API call
+                    this.centers = [
+                        { id: 1, name: "City Market Center", distance: 5.2, contact: "+91 9876543210" },
+                        { id: 2, name: "Rural Depot", distance: 8.7, contact: "+91 9876543211" },
+                        { id: 3, name: "Farmers' Hub", distance: 12.3, contact: "+91 9876543212" }
+                    ];
+                },
+
+                initializeCharts() {
+                    const ctx = document.getElementById('priceChart');
+                    if (ctx) {
+                        new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                                datasets: [{
+                                    label: 'Price Trends',
+                                    data: [30, 35, 32, 38, 40, 45],
+                                    borderColor: 'rgb(34, 197, 94)',
+                                    tension: 0.1
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                plugins: {
+                                    legend: {
+                                        display: false
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
